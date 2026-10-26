@@ -1,0 +1,13 @@
+# Goal definition
+
+# Samples to use in bias calculation, if <=0 a default value will be used
+uint32 num_samples
+
+---
+# Result definition
+bool success
+string msg
+float32[] bias  # new bias
+---
+# Feedback
+uint32 samples_left

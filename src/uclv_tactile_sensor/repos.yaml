@@ -1,0 +1,15 @@
+repositories:
+  serial:
+    type: git
+    url: git@github.com:Vanvitelli-Robotics/serial.git
+    version: main
+
+  ament_toon:
+    type: git
+    url: git@github.com:Vanvitelli-Robotics/ament_toon.git
+    version: main
+
+  uclv_tactile_sensor:
+    type: git
+    url: git@github.com:Vanvitelli-Robotics/uclv_tactile_sensor.git
+    version: main
