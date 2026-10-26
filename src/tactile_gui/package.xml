@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>tactile_gui</name>
+  <version>0.0.1</version>
+  <description>GUI PyQt6 / PyQtGraph per visualizzazione sensore tattile 5x5</description>
+  <maintainer email="f.lepre00@gmail.com">FrancescoLepre</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>uclv_tactile_interfaces</depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
