@@ -1,84 +1,100 @@
-# ros2_docker_scripts
+# 🐳 Docker Development Environment (`docker_scripts`)
 
-## :package: Overview
-This repo contains a template for a ros2 project using Docker. The repo contains a Dockerfile, the scripts to build and run the image and the source code. The result will be a container in which a workspace is built, and the src folder of workspace is binded to the one in the repo. In this way the modifications done inside the container in src folder are reflected into the src folder of the repo, and viceversa...
+![Docker](https://img.shields.io/badge/Docker-24%2B-blue?logo=docker)
+![Ubuntu](https://img.shields.io/badge/OS-Ubuntu%2024.04%20LTS-orange?logo=ubuntu)
+![ROS 2](https://img.shields.io/badge/ROS%202-Jazzy-blue?logo=ros)
 
+This directory provides containerization scripts to run the entire ROS 2 Jazzy tactile suite inside an isolated environment. It handles hardware device pass-through (`/dev/ttyUSB0`), low-latency kernel tuning, and X11 graphics display forwarding for PyQt6/PyQtGraph GUIs.
 
-## Prerequisites
-Before setting up the project, you have to install docker. If you already installed docker, go to the next session
-```sh
-# Add Docker's official GPG key:
-sudo apt-get update
-sudo apt-get install ca-certificates curl gnupg
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
+---
 
-# Add the repository to Apt sources:
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update
+## 📋 Features
 
-# Install the Docker packages
-sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+* **Non-Root User Mapping:** Automatically creates user `user` with matching UID/GID to prevent host file permission corruption.
+* **Hardware Passthrough:** Full read/write permissions to `/dev/ttyUSB*` by embedding `dialout`, `tty`, and `plugdev` group privileges.
+* **X11 Display Support:** Grants seamless GUI rendering (`rviz2`, `pyqtgraph`) on host monitors via shared X11 sockets.
+* **Pre-configured ROS 2 Workspace:** Auto-sources `/opt/ros/jazzy/setup.bash` and `~/ros2_ws/install/setup.bash` on terminal login.
 
-# Add docker user
-sudo groupadd docker
-sudo usermod -aG docker $USER
-newgrp docker
+---
+
+## 🛠️ File Structure & Scripts Overview
+
+| File | Description |
+| :--- | :--- |
+| **`Dockerfile`** | Container blueprint based on Ubuntu 24.04 / ROS 2 Jazzy with system GUI & serial dependencies. |
+| **`docker_build_image.sh`** | Compiles the Docker image tagging it for the current host environment. |
+| **`docker_run_container.sh`** | Launches a interactive container mounting host volumes, serial devices, and X11 socket. |
+| **`docker_connect.sh`** | Connects a new bash session (`exec -it`) to an active container. |
+
+---
+
+## 💡 Usage Workflow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Developer
+    participant Host as Host Machine
+    participant Docker as Docker Container
+
+    Developer->>Host: Connect FTDI USB Sensor (/dev/ttyUSB0)
+    Developer->>Host: Execute ./docker_run_container.sh
+    Host->>Docker: Mount Volumes & Passthrough /dev/ttyUSB0 & X11
+    Docker-->>Developer: Interactive Bash Shell
+    Developer->>Docker: colcon build & ros2 launch
 ```
-Then log out and log in.
 
+### 1. Build the Docker Image
 
-## :hammer: Build
+Run this script once to build the Docker image locally:
 
-Clone this repo 
-```sh
-$ git clone https://github.com/RoboticsLab2026/ros2_docker_scripts.git
-```
-Open a terminal inside the cloned repo and make all the bash files executable
-```sh
-$ chmod +x *.sh
-```
-To build the docker image
-```sh
-$ ./docker_build_image.sh <IMAGE_NAME>
+```bash
+./docker_build_image.sh <IMAGE_NAME>
 ```
 where <IMAGE_NAME> is a name for the image you want to build.
 
-## :white_check_mark: Usage
-To run a container
-```sh
-$ ./docker_run_container.sh <IMAGE_NAME> <CONTAINER_NAME> <FOLDER_NAME>
+### 2. Run the Container
+
+Launch the interactive container environment:
+
+```bash
+./docker_run_container.sh <IMAGE_NAME> <CONTAINER_NAME> <FOLDER_NAME>
 ```
 where <IMAGE_NAME> is the name of the image you have just built, while <CONTAINER_NAME> is a name for the container hosting the image. <FOLDER_NAME> is the name of the local folder you want to mount inside the container ROS2 ws.
 
-To connect to the container from another terminal
-```sh
-$ ./docker_connect.sh 
+
+> [!IMPORTANT]
+> The USB serial adapter **must** be connected to the host PC prior to calling `docker_run_container.sh`, as Docker requires `/dev/ttyUSB0` to exist for device mounting.
+
+### 3. Open Additional Terminals
+
+To open supplementary shells into the running container:
+
+```bash
+./docker_connect.sh
 ```
 and select the container you want to connect to.
 
-<!-- 
-### Notes
-1. The container's root password is "user" by default.
+---
 
-2. The container will be automatically destroyed once exited (--rm flag). If you want to attach additional terminals to the container you need to keep it running (docker_connect.sh script). You can attach a new terminal by running the following command
-```sh
-docker exec -it $(docker ps -aqf "name=<CONTAINER_NAME>") bash
+## 🔍 Hardware & Permission Troubleshooting
+
+### Device Permission Check
+Run this diagnostic inside the container to verify serial access:
+
+```bash
+test -r /dev/ttyUSB0 && test -w /dev/ttyUSB0 && echo "READ/WRITE OK" || echo "PERMISSION DENIED"
 ```
 
-3. All apt-get performed inside the container will be removed one the container is closed. Please add all new dependencies to the Dockerfile and rebuild the image.
-
-## Run example code
-To run the ros2 example code (talker), just execute the following command
-```sh
-ros2 run cpp_pubsub talker
+If permissions are denied on host:
+```bash
+sudo chmod 666 /dev/ttyUSB0
+sudo usermod -aG dialout $USER
 ```
 
-## Development
-Once the container is running, you can develop from inside it using VsCode. Open VsCode from your host machine, install the extension Dev Containers, and in command bar select attach to running container. Open the folder /home/user/ros2_ws/src, which is the binded folder. 
-
--->
+### X11 GUI Rendering Failure
+If PyQt window fails with `Error: Can't open display`:
+```bash
+# On Host Machine
+xhost +local:root
+```
