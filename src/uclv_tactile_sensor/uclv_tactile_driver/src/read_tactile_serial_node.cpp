@@ -1,6 +1,18 @@
+// 1. Header C++ Standard OBBLIGATORI IN CIMA (Risolve l'incompatibilità GCC 13)
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <iostream>
+#include <vector>
+#include <string>
+#include <utility>
+
+// 2. Header ROS 2 e Librerie Terze
 #include <rclcpp/rclcpp.hpp>
-#include "serial/serial.h"
 #include <std_msgs/msg/header.hpp>
+#include "serial/serial.h"
+
+// 3. Messaggi Custom ROS 2
 #include "uclv_tactile_interfaces/msg/tactile_stamped.hpp"    
 
 #define ERROR_COLOR     "\033[1m\033[31m"      /* Bold Red */
@@ -19,8 +31,6 @@ void set_serial_low_latency(const string& serial_port)
   cout << "Setting low_latency for " << WARN_COLOR << serial_port << CRESET << " result:" << WARN_COLOR << result << CRESET << endl;
 }
 
-//==============MAIN================//
-
 int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv);
@@ -35,7 +45,6 @@ int main(int argc, char *argv[])
     node->declare_parameter<std::string>("tf_prefix", "");
     node->declare_parameter<std::string>("output_topic", "tactile_voltage/raw");
 
-    /**** CHECK PARAMS ****/
     std::string serial_port, frame_id, tf_prefix, topic_name;
     int baud_rate, serial_timeout, num_rows, num_cols;
 
@@ -48,51 +57,43 @@ int main(int argc, char *argv[])
     node->get_parameter("tf_prefix", tf_prefix);
     node->get_parameter("output_topic", topic_name);
 
-    /**** INIT SERIAL ****/	
     set_serial_low_latency(serial_port);
     serial::Serial my_serial(serial_port, baud_rate, serial::Timeout::simpleTimeout(serial_timeout));
 
-    /**** CHECK ****/
     if(!my_serial.isOpen()){
-   	    cout << ERROR_COLOR << "ERROR - SERIAL PORT " << WARN_COLOR << serial_port << ERROR_COLOR << " is not open!" << CRESET <<endl;
-   	    exit(-1);
+        cout << ERROR_COLOR << "ERROR - SERIAL PORT " << WARN_COLOR << serial_port << ERROR_COLOR << " is not open!" << CRESET << endl;
+        exit(-1);
     }
     cout << SUCCESS_COLOR << "SERIAL PORT " << WARN_COLOR << serial_port << SUCCESS_COLOR << " OPEN - OK" << CRESET << endl;
 
-    // ==== Tactile msg ====
-    double voltages_count = num_rows*num_cols;
+    int voltages_count = num_rows * num_cols;
     auto finger_voltages = uclv_tactile_interfaces::msg::TactileStamped();
     finger_voltages.header.stamp = node->get_clock()->now();
-    finger_voltages.header.frame_id = tf_prefix+frame_id;
+    finger_voltages.header.frame_id = tf_prefix + frame_id;
     finger_voltages.tactile.data.resize(voltages_count);
     finger_voltages.tactile.rows = num_rows;
     finger_voltages.tactile.cols = num_cols;
     finger_voltages.tactile.info = "voltages";
 
-    // PUBLISHER
     auto pubTactile = node->create_publisher<uclv_tactile_interfaces::msg::TactileStamped>(topic_name, 10);
 
-    // init buffers
-    const int dim_buffer = voltages_count*2;
-    uint8_t b2write[1], readBytes[dim_buffer];
-    b2write[0] = CHAR_TO_SEND;
+    const int dim_buffer = voltages_count * 2;
+    uint8_t b2write[1] = {CHAR_TO_SEND};
+    std::vector<uint8_t> readBytes(dim_buffer, 0);
 
-
-    /**** ROS MAIN LOOP  ****/
     while(rclcpp::ok())
     {   
-        my_serial.write(b2write,1);
-        my_serial.read(readBytes, dim_buffer);
+        my_serial.write(b2write, 1);
+        my_serial.read(readBytes.data(), dim_buffer);
         finger_voltages.header.stamp = node->get_clock()->now();
             
         for (int i = 0; i < voltages_count; i++) 
         {
-            finger_voltages.tactile.data[i] = (double)(readBytes[i*2] + (readBytes[i*2+1]&0b00001111)*256) * 3.3/4096.0;
+            finger_voltages.tactile.data[i] = (double)(readBytes[i*2] + (readBytes[i*2+1] & 0b00001111) * 256) * 3.3 / 4096.0;
         }
         
         pubTactile->publish(finger_voltages);	
     }
 
     return 0;
-
 }

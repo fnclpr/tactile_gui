@@ -1,10 +1,13 @@
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "uclv_tactile_interfaces/msg/tactile_stamped.hpp"
 #include "uclv_tactile_interfaces/action/compute_bias.hpp"
-#include "rclcpp_action/rclcpp_action.hpp"
+
 #include <vector>
 #include <string>
-
+#include <mutex>
+#include <thread>
+#include <chrono>
 
 using ComputeBias = uclv_tactile_interfaces::action::ComputeBias;
 using TactileStamped = uclv_tactile_interfaces::msg::TactileStamped;
@@ -14,10 +17,9 @@ class ComputeBiasActionServer : public rclcpp::Node {
 public:
     ComputeBiasActionServer() : Node("remove_bias"), b_msg_arrived(false), b_can_pub(false) 
     {
-        // Input Parameters
         this->declare_parameter("in_voltage_topic", "tactile_voltage/raw");
         this->declare_parameter("out_voltage_topic", "tactile_voltage/rect");
-        this->declare_parameter("action_compute_bias", "tactile_voltage/action_compute_bias");
+        this->declare_parameter("action_compute_bias", "compute_bias_action");
         this->declare_parameter("default_num_samples", 100);
         this->declare_parameter("num_voltages", 25);
 
@@ -27,13 +29,12 @@ public:
         this->get_parameter("default_num_samples", default_num_samples_to_use);
         this->get_parameter("num_voltages", NUM_V);
 
-        // Initialization variables
-        bias.resize(NUM_V, 0.0);
-        raw_valtages.resize(NUM_V, 0.0);
+        bias.resize(NUM_V, 0.0f);
+        raw_voltages.resize(NUM_V, 0.0f);
 
-        // Subscriber, Publisher e Action Server
-        subVoltage = this->create_subscription<TactileStamped>(in_voltage_topic_str, 1, std::bind(&ComputeBiasActionServer::readV, this, _1));
-        pubV = this->create_publisher<TactileStamped>(out_voltage_topic_str, 1);
+        subVoltage = this->create_subscription<TactileStamped>(
+            in_voltage_topic_str, 10, std::bind(&ComputeBiasActionServer::readV, this, _1));
+        pubV = this->create_publisher<TactileStamped>(out_voltage_topic_str, 10);
 
         compute_bias_as = rclcpp_action::create_server<ComputeBias>(
             this,
@@ -43,86 +44,110 @@ public:
             std::bind(&ComputeBiasActionServer::handleAccepted, this, _1)
         );
 
-        RCLCPP_INFO(this->get_logger(), "Waiting for initial voltages...");
-        waitForVoltage();
+        RCLCPP_INFO(this->get_logger(), "Nodo remove_bias avviato su action '%s'.", action_compute_bias_str.c_str());
 
-        // First computation of the bias
-        done = false;
-        while (rclcpp::ok() && !computeBias(default_num_samples_to_use)) {
-            RCLCPP_ERROR(this->get_logger(), "Retrying bias computation...");
-        }
-        done = true;
-        b_can_pub = true;
+        // Timer per lanciare la tara iniziale in background a spin() attivo
+        init_timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(50),
+            std::bind(&ComputeBiasActionServer::onInitTimer, this)
+        );
     }
 
 private:
-
-    // Attributes
     rclcpp::Publisher<TactileStamped>::SharedPtr pubV;
     rclcpp::Subscription<TactileStamped>::SharedPtr subVoltage;
     rclcpp_action::Server<ComputeBias>::SharedPtr compute_bias_as;
+    rclcpp::TimerBase::SharedPtr init_timer_;
 
-    // Attributes to manage the bias computation
     std::string in_voltage_topic_str, out_voltage_topic_str, action_compute_bias_str;
-    std::vector<float> bias, raw_valtages;
+    std::vector<float> bias, raw_voltages;
     bool b_msg_arrived, b_can_pub;
     int default_num_samples_to_use, NUM_V;
-    //! variable to avoid multiple calls to spin_some
-    bool done;
 
-    static constexpr int NUM_SAMPLES_NOT_USE = 10;
+    std::mutex data_mutex_;
+
     static constexpr int MAX_WAIT_COUNT = 100;
-    static constexpr double TIME_TO_SLEEP_WAITING_SAMPLE = 0.01;
+    static constexpr double TIME_TO_SLEEP_WAITING_SAMPLE = 0.01; // 10ms
 
-    // Callback to read and publish the voltages
+    void onInitTimer() {
+        init_timer_->cancel();
+
+        // Lancia il calcolo della tara in un THREAD SEPARATO per non bloccare lo SingleThreadedExecutor!
+        std::thread([this]() {
+            RCLCPP_INFO(this->get_logger(), "In attesa dei dati da %s per la tara iniziale...", in_voltage_topic_str.c_str());
+            
+            // Loop di tentativo finche non raccoglie 100 campioni validi
+            while (rclcpp::ok() && !computeBias(default_num_samples_to_use)) {
+                RCLCPP_WARN(this->get_logger(), "In attesa che il sensore pubblichi dati su %s...", in_voltage_topic_str.c_str());
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            }
+
+            if (rclcpp::ok()) {
+                b_can_pub = true;
+                RCLCPP_INFO(this->get_logger(), "Tara iniziale COMPLETATA! Pubblicazione su %s ABILITATA.", out_voltage_topic_str.c_str());
+            }
+        }).detach();
+    }
+
     void readV(const TactileStamped::SharedPtr msg) {
-        raw_valtages = msg->tactile.data;
+        if (static_cast<int>(msg->tactile.data.size()) != NUM_V) return;
+
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        raw_voltages = msg->tactile.data;
+        
+        auto rect_msg = *msg;
         for (int i = 0; i < NUM_V; i++) {
-            msg->tactile.data[i] -= bias[i];
+            rect_msg.tactile.data[i] -= bias[i];
         }
+
         b_msg_arrived = true;
         if (b_can_pub) {
-            pubV->publish(*msg);
+            pubV->publish(rect_msg);
         }
     }
 
-    // Compute the bias
     bool computeBias(int num_samples_to_use) {
         std::vector<double> bias_sum(NUM_V, 0.0);
-        RCLCPP_INFO(this->get_logger(), "Computing bias...");
 
         for (int i = 0; i < num_samples_to_use; ++i) {
-            b_msg_arrived = false;
+            {
+                std::lock_guard<std::mutex> lock(data_mutex_);
+                b_msg_arrived = false;
+            }
+
             int wait_count = 0;
-            while (!b_msg_arrived && wait_count < MAX_WAIT_COUNT) {
-                rclcpp::sleep_for(std::chrono::milliseconds(int(TIME_TO_SLEEP_WAITING_SAMPLE * 1000)));
-                if(!done)
-                    rclcpp::spin_some(this->get_node_base_interface());
+            while (wait_count < MAX_WAIT_COUNT) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(int(TIME_TO_SLEEP_WAITING_SAMPLE * 1000)));
+                std::lock_guard<std::mutex> lock(data_mutex_);
+                if (b_msg_arrived) break;
                 wait_count++;
             }
-            if (!b_msg_arrived) return false;
+
+            std::lock_guard<std::mutex> lock(data_mutex_);
+            if (!b_msg_arrived) {
+                return false;
+            }
 
             for (int j = 0; j < NUM_V; ++j) {
-                bias_sum[j] += raw_valtages[j];
+                bias_sum[j] += raw_voltages[j];
             }
         }
 
+        std::lock_guard<std::mutex> lock(data_mutex_);
         for (int i = 0; i < NUM_V; ++i) {
-            bias[i] = bias_sum[i] / num_samples_to_use;
+            bias[i] = static_cast<float>(bias_sum[i] / num_samples_to_use);
         }
 
-        RCLCPP_INFO(this->get_logger(), "Bias computation DONE!");
         return true;
     }
 
-    // Callbacks for the action server
     rclcpp_action::GoalResponse handleGoal(const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const ComputeBias::Goal> goal) {
-        RCLCPP_INFO(this->get_logger(), "Received goal request with num_samples: %d", goal->num_samples);
+        (void)uuid;
         return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
     }
 
     rclcpp_action::CancelResponse handleCancel(const std::shared_ptr<rclcpp_action::ServerGoalHandle<ComputeBias>> goal_handle) {
-        RCLCPP_INFO(this->get_logger(), "Cancel request received");
+        (void)goal_handle;
         return rclcpp_action::CancelResponse::ACCEPT;
     }
 
@@ -136,15 +161,6 @@ private:
         remove_bias_result->success = computeBias(goal->num_samples > 0 ? goal->num_samples : default_num_samples_to_use);
         goal_handle->succeed(remove_bias_result);
     }
-
-    void waitForVoltage() {
-        b_msg_arrived = false;
-        while (rclcpp::ok() && !b_msg_arrived) {
-            rclcpp::spin_some(this->get_node_base_interface());
-            rclcpp::sleep_for(std::chrono::milliseconds(int(TIME_TO_SLEEP_WAITING_SAMPLE * 1000)));
-        }
-    }
-
 };
 
 int main(int argc, char * argv[]) {

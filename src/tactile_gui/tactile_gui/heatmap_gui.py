@@ -37,11 +37,11 @@ class TactileGuiNode(Node):
 
         self.raw_topic = self.get_parameter('raw_topic').value
         self.debiased_topic = self.get_parameter('debiased_topic').value
-        self.action_name = self.get_parameter('action_name').value
+        self.action_name = self.get_parameter('action_name').value  
         self.rows = self.get_parameter('rows').value
         self.cols = self.get_parameter('cols').value
 
-        # Sottoscrizione permanente a entatrambi i topic (Opzione B)
+        # Sottoscrizione permanente a entrambi i topic
         self.sub_raw = self.create_subscription(
             TactileStamped, self.raw_topic, self.raw_callback, 10)
         self.sub_rect = self.create_subscription(
@@ -129,7 +129,9 @@ class TactileHeatmapWindow(QMainWindow):
         self.min_level = -0.2
         self.max_level = 2.0
 
-        self.color_bar = pg.ColorBarItem(values=(self.min_level, self.max_level), cmap=cmap)
+        # ColorBar senza parametro errato 'cmap'
+        self.color_bar = pg.ColorBarItem(values=(self.min_level, self.max_level))
+        self.color_bar.setColorMap(cmap)
         self.color_bar.setImageItem(self.img_item, insert_in=self.plot_view)
 
         # Barra dei comandi
@@ -164,7 +166,6 @@ class TactileHeatmapWindow(QMainWindow):
 
     def on_raw_data(self, data: np.ndarray):
         if self.current_mode == "RAW":
-            # Si applica la trasposta .T per allineare l'orientamento NumPy a PyQtGraph
             self.img_item.setImage(data.T, autoLevels=False, levels=(self.min_level, self.max_level))
 
     def on_rect_data(self, data: np.ndarray):
@@ -191,7 +192,6 @@ def main(args=None):
     window = TactileHeatmapWindow(ros_node, bridge)
     window.show()
 
-    # Timer per consentire la gestione dei segnali Python (SIGINT / CTRL+C)
     timer = QTimer()
     timer.timeout.connect(lambda: None)
     timer.start(100)

@@ -5,24 +5,20 @@ from launch.substitutions import LaunchConfiguration, PythonExpression
 
 def generate_launch_description():
     return LaunchDescription([
-        # Declaration of argument
-        DeclareLaunchArgument('serial_port', default_value='/dev/ttyUSB0', description='Serial port'),
+        # Dichiarazione Argomenti
+        DeclareLaunchArgument('serial_port', default_value='/dev/ttyUSB0', description='Porta seriale'),
         DeclareLaunchArgument('baud_rate', default_value='1000000', description='Baud rate'),
-        DeclareLaunchArgument('serial_timeout', default_value='1000', description='Serial timeout'),
-        DeclareLaunchArgument('rows', default_value='5', description='Number of rows'),
-        DeclareLaunchArgument('cols', default_value='5', description='Number of columns'),
-        DeclareLaunchArgument('default_num_samples', default_value='100', description='Default number of samples'),
+        DeclareLaunchArgument('serial_timeout', default_value='1000', description='Timeout seriale (ms)'),
+        DeclareLaunchArgument('rows', default_value='5', description='Numero righe'),
+        DeclareLaunchArgument('cols', default_value='5', description='Numero colonne'),
+        DeclareLaunchArgument('default_num_samples', default_value='100', description='Campioni per la tara'),
         DeclareLaunchArgument('tf_prefix', default_value='', description='TF prefix'),
         DeclareLaunchArgument('frame_id', default_value='fingertip0', description='Frame ID'),
-        DeclareLaunchArgument('output_topic', default_value='tactile_voltage/raw', description='Output topic'),
+        DeclareLaunchArgument('output_topic', default_value='tactile_voltage/raw', description='Topic raw'),
+        DeclareLaunchArgument('voltage_rect_topic', default_value='tactile_voltage/rect', description='Topic debiased'),
+        DeclareLaunchArgument('action_compute_bias', default_value='compute_bias_action', description='Nome Action Server'),
 
-        # Invariant args
-        # DeclareLaunchArgument('voltage_raw_topic', default_value='tactile_voltage/raw', description='Raw voltage topic'),
-        # DeclareLaunchArgument('voltage_raw_checked_topic', default_value=PythonExpression(['"', LaunchConfiguration('voltage_raw_topic'), '_checked"']), description='Checked raw voltage topic'),
-        DeclareLaunchArgument('voltage_rect_topic', default_value='tactile_voltage/rect', description='Rectified voltage topic'),
-        DeclareLaunchArgument('action_compute_bias', default_value='compute_bias_action', description='Compute bias action topic'),
-
-        # Read from serial node
+        # 1. Nodo Lettura Seriale (C++)
         Node(
             package='uclv_tactile_driver',
             executable='read_tactile_serial',
@@ -40,13 +36,14 @@ def generate_launch_description():
             }]
         ),
 
-        # Remove bias node
+        # 2. Nodo Filtro Bias (C++)
         Node(
             package='uclv_tactile_driver',
             executable='remove_bias',
             name='remove_bias',
             output='screen',
             parameters=[{
+                'in_voltage_topic': LaunchConfiguration('output_topic'),
                 'out_voltage_topic': LaunchConfiguration('voltage_rect_topic'),
                 'action_compute_bias': LaunchConfiguration('action_compute_bias'),
                 'default_num_samples': LaunchConfiguration('default_num_samples'),
@@ -54,4 +51,18 @@ def generate_launch_description():
             }],
         ),
 
+        # 3. Interfaccia Grafica Heatmap (Python)
+        Node(
+            package='tactile_gui',
+            executable='heatmap_gui',
+            name='tactile_heatmap_gui',
+            output='screen',
+            parameters=[{
+                'raw_topic': LaunchConfiguration('output_topic'),
+                'debiased_topic': LaunchConfiguration('voltage_rect_topic'),
+                'action_name': LaunchConfiguration('action_compute_bias'),
+                'rows': LaunchConfiguration('rows'),
+                'cols': LaunchConfiguration('cols'),
+            }]
+        ),
     ])
