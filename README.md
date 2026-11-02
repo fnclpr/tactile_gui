@@ -42,19 +42,19 @@ flowchart LR
 
 ```text
 ros2_ws/
-├── docker_scripts/               # Docker development container environment
-│   ├── Dockerfile                # User, serial (dialout), and GUI dependencies
-│   ├── docker_build_image.sh     # Image build script
-│   ├── docker_run_container.sh   # Container launcher with X11 & hardware mounting
-│   └── docker_connect.sh       # Shell attachment tool
+├── docker_scripts/                     # Docker development container environment
+│   ├── Dockerfile                      # User, serial (dialout), and GUI dependencies
+│   ├── docker_build_image.sh           # Image build script
+│   ├── docker_run_container.sh         # Container launcher with X11 & hardware mounting
+│   └── docker_connect.sh               # Shell attachment tool
 └── src/
-    ├── dummy_publisher.py        # Standalone synthetic data generator for testing
-    ├── tactile_gui/              # Real-time 2D visualizer package (Python/PyQt6)
-    │   ├── launch/               # GUI standalone launch files
-    │   └── tactile_gui/          # Heatmap rendering engine and ROS 2 node
-    └── uclv_tactile_sensor/      # Hardware driver & ROS 2 interfaces repository
-        ├── uclv_tactile_driver/  # Low-latency acquisition & debiasing nodes (C++)
-        └── uclv_tactile_interfaces/ # Custom Msg (TactileStamped) and Action (ComputeBias)
+    ├── dummy_publisher.py              # Standalone synthetic data generator for testing
+    ├── tactile_gui/                    # Real-time 2D visualizer package (Python/PyQt6)
+    │   ├── launch/                     # GUI standalone launch files
+    │   └── tactile_gui/                # Heatmap rendering engine and ROS 2 node
+    └── uclv_tactile_sensor/            # Hardware driver & ROS 2 interfaces repository
+        ├── uclv_tactile_driver/        # Low-latency acquisition & debiasing nodes (C++)
+        └── uclv_tactile_interfaces/    # Custom Msg (TactileStamped) and Action (ComputeBias)
 ```
 
 ---
