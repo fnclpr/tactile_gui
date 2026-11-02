@@ -36,8 +36,10 @@ RUN apt-get update && apt-get install -y \
     python3-numpy \
     python3-opengl \
     python3-matplotlib \
+    python3-serial \
     setserial \
     ros-jazzy-xacro \
+    ros-jazzy-plotjuggler-ros \
     && rm -rf /var/lib/apt/lists/*
 USER user
 
